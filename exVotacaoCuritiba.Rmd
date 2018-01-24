@@ -1,0 +1,1164 @@
+---
+title: "CE227 - Exemplo Votação para prefeito de Curitiba"
+author: "Karina Rebuli"
+date: "Curitiba, 5 de março de 2016"
+output:
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    toc: true
+    fig_caption: yes
+    number_sections: true
+---
+<br />
+
+```{r, include=FALSE}
+## General settings
+knitr::opts_chunk$set( warning = FALSE
+                       , message = FALSE
+                       , fig.align = 'center' )
+```
+```{r, general-settings, echo=FALSE, message=FALSE}
+## Packages
+require( ggplot2 )
+require( ggthemes )
+require( dplyr )
+
+## Equantions counter
+eqs <- list()
+n.eq <- 1
+
+```
+
+# Motivação
+
+Este exercício é um exemplo canônico de conceitos da inferência Bayesiana. Foi elaborado com as notas de aula do curso de Inferência Bayesiana ministrado em 2016 pelo Professor Dr. Paulo Justiniano Ribeiro Jr no âmbito do curso de graduação em Estatística da UFPR.
+
+Vamos aplicar a inferência Bayesiana a uma suposta pesquisa de intenções de voto para um determinado candidato à prefeito da nossa Capital.
+
+Na inferência Bayesiana buscamos conhecer a distribuição de probabilidade dos parâmetros de interesse condicional aos dados, a qual é produto da distribuição à priori com a verossimilhança dos dados, conforme:
+
+```{r, echo=FALSE}
+eqs$bayesTheorem <- n.eq
+n.eq <- n.eq + 1
+```
+\begin{align}
+  [\theta | y] \sim \frac{ [ y | \theta ] \cdot [ \theta ] }{ [y] } = \frac{ [ y | \theta ] \cdot [ \theta ] }{ \int~ [\theta] \cdot [y|\theta ] ~d\theta }  \qquad (`r eqs$bayesTheorem `)
+\end{align}
+
+Em (`r eqs$bayesTheorem`) o denominador é integrado em $\theta$, sendo, portanto, uma constante em relação aos parâmetros. Podemos reescrever $[ \theta | y ]$ como proporcional à função de probabilidade do numerador:
+
+```{r, echo=FALSE}
+eqs$bayesTheoremProp <- n.eq
+n.eq <- n.eq + 1
+```
+\begin{align}
+  [\theta | y] \propto [ y | \theta ] \cdot [ \theta ]   \qquad (`r eqs$bayesTheoremProp `)
+\end{align}
+
+onde: <br />
+<ul style="list-style-type:none;">
+  <li>$\theta$ é parâmetro de interesse (ou vetor de parâmetros)</li>
+  <li>$y$ são os dados</li>
+</ul>
+    
+Começamos definindo nossa priori. Depois avaliamos a verossimilhança dos dados e, então, construimos a posteriori. Como trata-se de um exercício didático, vamos explorar diversas formas de encontrar a posteriori.
+<br />
+<br />
+<hr />
+
+# Definição da *Priori*
+
+A priori será uma distribuição Beta por atender aos requisitos da variável: contínua com suporte $[0,1]$.
+```{r, echo=FALSE}
+eqs$betaDistribution <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+  [\theta] \sim \frac{ \Gamma(\alpha+\beta) }{ \Gamma(\alpha) \Gamma(\beta) } \theta^{\alpha-1} (1-\theta)^{\beta-1}  \qquad (`r eqs$betaDistribution `)
+\end{align}
+
+<br />
+
+Por subjetividade, escolhemos os parâmetros da priori. Suponha que antes de ver os dados, achamos que nosso candidato terá 52,5% das intenções de voto. Isso será incluído no modelo como a moda da priori tendo este valor. Além disso, precisamos informar sobre a dispersão desta distribuição. Para
+o exemplo, vamos definir que temos 95% de confiança de que o candidato terá pelo menos 40% das intenções e não mais que 65% delas.
+
+```{r, prioiri-settings}
+## --------------------------------------------------
+## Priori settings
+
+mode.pri <- 0.525
+l.inf <- 0.4
+l.sup <- 0.65
+conf <- 0.95
+
+```
+
+Precisamos encontrar os parâmetros $\alpha$ e $\beta$ de (`r eqs$betaDistribution `) que dão a forma desejada à *Priori*, conforme a informação subjetiva acima.
+
+Sabemos que a moda de uma distribuição Beta é definida pela relação entre $\alpha$ e $\beta$ conforme:
+```{r, echo=FALSE}
+eqs$betaMode <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+  Mode_{Beta} = \frac{ \alpha - 1 }{ \alpha + \beta - 2 } \qquad if \, \alpha \, , \beta \, \leq 1 \qquad (`r eqs$betaMode `)
+\end{align}
+
+Precisamos, portanto, estimar dois parâmtros com uma função. Vamos utilizar as funções da distribuição Beta do **R** e otimização para isto.
+
+```{r, priori-parameters-estimation, results='hold'}
+
+## --------------------------------------------------
+## Priori parameters estimation
+
+##
+## Função para definir os parâmetros de uma priori beta
+## a partir de:
+##    - uma estimativa pontual (considerada a moda)
+##    - um intervalo de valores (int) e a "confiança" a ele atribuída (conf)
+##
+##  Lembrete: a moda da Beta é \frac{\alpha - 1}{\alpha + \beta -2} , para \alpha e \beta> 1
+##
+prioriBeta <- function( p, int, conf ){
+  
+  # Optimizing in beta
+  betapars.f <- function( beta, p, int, conf ){
+    
+    # Given mode and beta, let's evaluate alpha
+    alfa <- ( ( beta-2 )*p + 1 )/( 1-p )
+    
+    # Then with some alpha and beta, let's evaluate how far we are from the desired confidence
+    err <- ( diff( pbeta( int, shape1=alfa, shape2=beta) ) - conf )^2
+    
+    return(err)
+    
+  }
+  
+  res <- optimize( betapars.f, interval=c(1,50), p=p, conf=conf,int=int )
+  pars <- c( ( (res$minimum-2)*p + 1)/(1-p), res$minimum )
+  
+  return( list( alpha = pars[1], beta = pars[2] ) )
+  
+}
+
+( priori.pars <- prioriBeta( p = mode.pri, int = c(l.inf, l.sup), conf = conf ) )
+
+## Conferindo
+diff( pbeta( c(0.15, 0.35), priori.pars$alpha, priori.pars$beta ) )
+unname( ( priori.pars$alpha-1 )/( priori.pars$alpha + priori.pars$beta - 2) )
+
+```
+```{r,eval='FALSE', echo=FALSE}
+## Not stable
+find.alpha <- function( alpha, mode=.4, l.inf=.2, l.sup=.9, conf=.95 ){
+  beta <- ( (1-mode)*alpha + 2*mode - 1 )/( mode )
+  p <- diff( pbeta( c(l.inf, l.sup), shape1 = alpha, shape2 = beta ) )
+  (p-conf)^2
+}
+
+```
+
+<br />
+Com estes parâmetros, nossa priori tem a forma:
+```{r, echo=FALSE}
+eqs$betaPriori <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+[\theta] \sim Beta(\theta, \alpha=`r formatC( priori.pars$alpha, digits=2, format="f" )`, \beta=`r formatC( priori.pars$beta, digits=2, format="f" )`)  \qquad (`r eqs$betaPriori `)
+\end{align}
+
+<br />
+```{r, echo=FALSE, fig.width=6.5, fig.height=4, fig.align='center'}
+## --------------------------------------------------
+## Plot it
+
+col.priori <- "cornflowerblue"
+txt.mode <- paste( "Moda:", mode.pri )
+
+ggplot( data.frame(x=seq( 0, 1, l=1e3 ) ), aes(x) ) + 
+  stat_function( fun=function(x){ dbeta( x, priori.pars$alpha, priori.pars$beta ) }, colour = col.priori ) +
+  scale_colour_brewer( palette = 1) +
+  scale_x_continuous(name = "Intenções de voto" ) +
+  scale_y_continuous(name = element_blank() ) +
+  theme(plot.title = element_text( lineheight=1, face="bold", size = 12 )
+        , panel.background = element_rect(colour = "gray75") ) +
+  annotate("segment", x = mode.pri, xend = mode.pri
+           , y = 0
+           , yend = dbeta( mode.pri, priori.pars$alpha, priori.pars$beta )*1.05
+           , alpha = 0.5) +
+  annotate("text", label = txt.mode , x = mode.pri*1.01, y = 6.2, hjust = 0, vjust = 0, size = 3 ) +
+  theme_few()
+
+```
+<br />
+
+<br />
+<hr />
+
+# Verossimilhança
+
+Os dados são fictícios, vindos de uma amostra aleatória simples de $n$ indivíduos cuja resposta é se tem ou não a inteção de votar no determinado candidato. Assim, a distribuição de probabilidade dos dados pode ser modelada por uma Binomial.
+
+\begin{align}
+y \sim Bin( \theta; n, k )
+\end{align}
+
+onde:
+```{r, echo=FALSE}
+eqs$binomial <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+Bin( \theta; n, k ) = \binom{n}{k} \theta^{k} (1-\theta)^{n-k} \qquad (`r eqs$binomial `)
+\end{align}
+
+Cuja verossimilhança é dada por:
+```{r, echo=FALSE}
+eqs$likelihoodBinomial <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+\mathcal{L}( \theta ) = \prod_{i=1}^{n} \binom{y_i}{n} {\theta}^{y_i} (1-\theta)^{n-y_i} \qquad (`r eqs$likelihoodBinomial `)
+\end{align}
+
+```{r, population-settings, echo=FALSE}
+Theta <- 0.35
+n <- 40
+n.sample <- n
+```
+<br />
+
+Para este exemplo, vamos supor que o valor do parâmetro populacional é $\Theta$ = `r Theta` e que nossa amostra tem tamanho $n$ = `r n`.
+
+```{r, sample, data}
+## --------------------------------------------------
+## Sample
+
+k <- sum( rbinom( size = 1, n = n, prob = Theta ) )
+
+```
+<br />
+
+Os dados terão a seguinte distribuição Binomial:
+
+\begin{align}
+Bin( \theta; `r n `, `r k ` ) = \binom{`r n `}{`r k `} \theta^{`r k `} (1-\theta)^{`r n-k `}
+\end{align}
+
+<br />
+
+E para $\theta$ a estimativa por máxima verossimilhança será dada por:
+
+\begin{align}
+\hat{\theta} = \frac{k}{n} = \frac{`r k `}{`r n `} = `r k/n `
+\end{align}
+
+```{r, mode-mle}
+( mode.lik <- k/n )
+```
+
+<br />
+
+Como os binomiais de (`r eqs$likelihoodBinomial`) são constantes, podemos reescrever essa equação como:
+```{r, echo=FALSE}
+eqs$binomialDataProp <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+\mathcal{L}( \theta ) \propto {\theta}^{\sum y_i} (1-\theta)^{\sum(n-y_i)} \qquad (`r eqs$binomialDataProp `)
+\end{align}
+
+<br />
+E somar `+1-1` aos expoentes de todos os termos:
+```{r, echo=FALSE}
+eqs$binomialDataProp.stepSum <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+\mathcal{L}( \theta ) \propto {\theta}^{\sum y_i +1 -1} (1-\theta)^{\sum(n-y_i) +1 -1} \qquad (`r eqs$binomialDataProp.stepSum `)
+\end{align}
+
+<br />
+Chamando $\sum y_i +1 \equiv \alpha_{lik}$ e $\sum(n-y_i) +1 \equiv \beta_{lik}$, temos:
+```{r, echo=FALSE}
+eqs$binomialDataProp.kernelBeta <- n.eq
+n.eq <- n.eq + 1
+```
+\begin{align}
+\mathcal{L}( \theta ) \propto {\theta}^{\alpha_{lik} -1} (1-\theta)^{\beta_{lik} -1} \qquad (`r eqs$binomialDataProp.kernelBeta `)
+\end{align}
+
+Que é o núcleo de uma distribuição Beta (`r eqs$betaDistribution `) com parâmetros $\alpha_{lik}$ e $\beta_{lik}$.
+
+
+```{r, mode-beta-likelihood}
+## --------------------------------------------------
+## Beta likelihood 
+
+alpha.lik <- k+1
+beta.lik <- n-k+1
+( mode.lik <- ( alpha.lik - 1 )/( alpha.lik + beta.lik - 2 ) )
+
+```
+<br />
+
+O método de máxima verossimilhança olha somente para os dados, enquanto a inferência Bayesiana inclui o conhecimento que se tenha sem eles. Independente de como este conhecimento prévio é obtido, de forma mais ou menos subjetiva, ele é modelado na forma de uma distribuição de probabilidades e incluído no modelo através da distribuição à priori.
+
+Alternativamente, em vez de incluir uma informação prévia na forma de uma distribuição de probabilidades, podemos pensar em traduzir essa informação à priori na forma de dados e somar esses supostos dados aos dados observados. Neste caso, não teremos uma priori e, portanto, não estaremos fazendo inferência Bayesiana, mas sim por máxima verossimilhança.
+
+Como exemplo didático, o que mostramos a seguir é a verossimilhança com os dados da amostra combinados aos dados de uma amostra que corresponda à informação da priori. Para este exemplo, isso pode ser feito considerando $\alpha = k$ e $\beta = n-k$, sendo $n$ o tamanho efetivo da amostra dos dados à priori (nos resultados da posteriori analítica será entendido o porquê). A esta distribuição, chamaremos de **verossimilhança aumentada**.
+
+<br />
+
+```{r, increased-lik}
+## --------------------------------------------------
+## Increased likelihood 
+
+alpha.lik.incr <- priori.pars$alpha + k + 1
+beta.lik.incr <- priori.pars$beta + (n-k) + 1
+( mode.lik.incr <- ( alpha.lik.incr - 1 )/( alpha.lik.incr + beta.lik.incr - 2 ) )
+
+```
+
+```{r, echo=FALSE, fig.width=6.5, fig.height=4, fig.align='center'}
+## --------------------------------------------------
+## Plot it
+
+col.lik <- "chartreuse4"
+txt.mode.lik <- paste("Moda:", formatC(mode.lik, digits = 2, format="f"), " " )
+txt.mode.lik.incr <- paste("Moda da verossimilhança aumentada:", formatC(mode.lik.incr, digits = 2, format="f"), " " )
+
+ggplot( data.frame(x=seq( 0, 1, l=1e3 ) ), aes(x) ) + 
+  stat_function( fun=function(x){ dbeta(x, alpha.lik, beta.lik) }, colour = col.lik ) +
+  stat_function( fun=function(x){ dbeta(x, alpha.lik.incr, beta.lik.incr) }, colour = col.lik, linetype = 2 ) +
+  scale_colour_brewer( palette = 1) +
+  scale_x_continuous(name = "Intenções de voto" ) +
+  scale_y_continuous(name = element_blank() ) +
+  theme(plot.title = element_text( lineheight=1, face="bold", size = 12 )
+        , panel.background = element_rect(colour = "gray75") ) +
+  annotate("segment", x = mode.lik, xend = mode.lik
+           , y = 0
+           , yend = dbeta(mode.lik, alpha.lik, beta.lik)*1.05
+           , alpha = 0.5) +
+  annotate("text", label = txt.mode.lik , x = mode.lik*1.01, y = dbeta(mode.lik, alpha.lik, beta.lik)*1.05, hjust = 1, vjust = 0, size = 3 ) +
+  annotate("segment", x = mode.lik.incr, xend = mode.lik.incr
+           , y = 0
+           , yend = dbeta( mode.lik.incr, alpha.lik.incr, beta.lik.incr )*1.05
+           , alpha = 0.5) +
+  annotate("text", label = txt.mode.lik.incr , x = mode.lik.incr*1.01
+           , y = dbeta(mode.lik.incr, alpha.lik.incr, beta.lik.incr)*1.05, hjust = 1, vjust = 0, size = 3 ) +
+  theme_few()
+
+```
+<br />
+<hr />
+
+# Posterioris
+
+<br />
+
+## Posteriori analítica
+O caso do nosso exemplo é de uma priori conjugada, cuja posteriori será uma atualização da priori pela verossimilhança. Mostramos isso analisando as distribuições acima:
+```{r, echo=FALSE}
+eqs$betaPosteriori.step1 <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+[\theta | y] & \propto [ y | \theta ] \cdot [ \theta ] \\
+[\theta | y] & \propto \binom{n}{k} \theta^{k} (1-\theta)^{n-k} ~ . ~ \frac{ \Gamma(\alpha+\beta) }{ \Gamma(\alpha) \Gamma(\beta) } \theta^{\alpha-1} (1-\theta)^{\beta-1}  \qquad (`r eqs$betaPosteriori.step1 `)
+\end{align}
+
+<br />
+
+A combinação $\binom{n}{k}$ e a fração $\frac{ \Gamma(\alpha+\beta) }{ \Gamma(\alpha) \Gamma(\beta) }$ não dependem de $\theta$. Podemos, portanto, incorporá-las à constante de proporcionalidade de (`r eqs$betaPosteriori.step1`):
+```{r, echo=FALSE}
+eqs$betaPosteriori.step2 <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+[\theta | y] \propto \theta^{k} (1-\theta)^{n-k} ~ . ~ \theta^{\alpha-1} (1-\theta)^{\beta-1}  \qquad (`r eqs$betaPosteriori.step2 `)
+\end{align}
+
+<br />
+  
+E agrupar os termos comuns:
+```{r, echo=FALSE}
+eqs$betaPosteriori.step3 <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+[\theta | y] \propto \theta^{k+\alpha-1} (1-\theta)^{n-k+\beta-1}  \qquad (`r eqs$betaPosteriori.step3 `)
+\end{align}
+
+Identifica-se em (`r eqs$betaPosteriori.step3`) uma função correspondente ao núcleo de uma distribuição Beta:
+```{r, echo=FALSE}
+eqs$betaPosteriori.kernel <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+[\theta | y] \propto \theta^{(\alpha+k)-1} (1-\theta)^{(\beta+n-k)-1} \qquad (`r eqs$betaPosteriori.kernel `)
+\end{align}
+
+A qual pode, então, ser reescrita como:
+```{r, echo=FALSE}
+eqs$betaPosterioriAnalytical <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+[\theta | y] \sim Beta(\theta; \alpha^{*}, \beta^{*}) \qquad (`r eqs$betaPosterioriAnalytical `)
+\end{align}
+
+onde:
+<ul style="list-style-type:none;">
+<li>$\alpha^{*} = \alpha + k$</li>
+<li>$\beta^{*} = \beta + (n-k)$</li>
+</ul>
+  
+Repare que o $\alpha$ é atualizado pelo número de sucessos em nossa amostra, enquanto o $\beta$ o é pelo número de fracassos.
+<br />
+  
+No nosso exemplo, teremos:
+```{r, analytical-posteriori, echo=FALSE}
+## --------------------------------------------------
+## Analytical posteriori
+
+alpha.star = priori.pars$alpha + k
+beta.star = priori.pars$beta + (n-k)
+mode.post <- ( alpha.star - 1 )/( beta.star + alpha.star - 2)
+
+```
+<br />
+
+\begin{align}
+\alpha^{*} & = `r formatC( alpha.star, digits = 2, format = "f") ` \\
+\beta^{*} & = `r formatC( beta.star, digits = 2, format = "f") ` \\
+\end{align}
+
+E a posteriori analítica será:
+
+\begin{align}
+[\theta | y] \sim Beta(\theta; \alpha=`r formatC(alpha.star, digits=2, format="f")`, \beta=`r formatC(beta.star, digits=2, format="f")`)
+\end{align}
+
+<br />
+Caso não fosse identificado o núcleo de uma distribuição de probabilidade em (`r eqs$betaPosteriori.step4 `), precisaríamos avaliar a constante de proporcionalidade para obter a posteriori. Ou seja, avaliar a integral em (`r eqs$bayesTheorem `) cuja dimensionalidade é a própria dimensão dos dados. Dada a dificuldade de avaliar esta integral, buscamos formas alternativas de encontrar a distribuição à posteriori. Veremos a seguir duas abordagens: por aproximação à uma distribuição Normal e por amostragem.
+
+<br />
+
+## Posteriori por aproximação à distribuição Normal
+
+Para aproximar a posteriori a uma Normal, precisamos encontrar os parâmetros desta Normal, média e desvio-padrão. Podemos estimar esses parâmetros de forma analítica ou numérica, como veremos a seguir.
+
+### Aproximação analítica
+
+Para encontrar o que serão a média e a variância da posteriori aproximada, iniciamos transformando a função proporcional da posteriori (`r eqs$betaPosteriori.kernel `) aplicando nela o exponencial e o logaritmo:
+
+\begin{align}
+f_x(x) & = exp\{ ~ log( \theta^{ (\alpha+k)-1 } (1-\theta)^{ (\beta+n-k)-1 } ) ~ \} \\
+\end{align}
+
+<br />
+
+Chamando $l(x) \equiv log( f_x(x) )$ e aplicando a expansão em série de Taylor para o log acima, podemos reescrever a equação como:
+
+\begin{align}
+f_x(x) & \sim exp\left\{ l(x_0) + \left( ~ (x-x_0) \frac{dl}{dx} ~ \right) + \left( ~ \frac{1}{2} (x-x_0)^{2} \frac{dl^{2}}{dx^{2}} ~ \right) \right\} \\
+\end{align}
+
+<br />
+  
+Como $x_0$ é o máximo, $\frac{dl}{dx} = 0$ e temos:
+
+\begin{align}
+f_x(x) & \sim exp\left\{ l(x_0) + \left( ~ \frac{1}{2} (x-x_0)^{2} \frac{dl^{2}}{dx^{2}} ~ \right) \right\} \\
+f_x(x) & \sim exp\left\{ l(x_0) \right\} \cdot exp\left\{ ~ \frac{1}{2} (x-x_0)^{2} \frac{dl^{2}}{dx^{2}} ~ \right\} \\
+\end{align}
+
+<br />
+  
+E como $exp\left\{ l(x_0) \right\}$ é uma constante, temos:
+```{r, echo=FALSE}
+eqs$normal.kernel <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+  f_x(x) & \propto exp\left\{ ~ \frac{1}{2} (x-x_0)^{2} \frac{ dl^{2} }{ dx^{2} } ~ \right\} \qquad (`r eqs$normal.kernel `)
+\end{align}
+
+<br />
+
+Comparando com o núcleo do uma Normal:
+
+\begin{align}
+N = \frac{ 1 }{ \sqrt{2\pi\sigma^2} } \cdot exp{ \frac{-1}{ 2\sigma^2 } (x-\mu)^2 }
+\end{align}
+
+Considerando $\mu = x_0$ e $\sigma^2 = (-H)^{-1}$, sendo $H$ o hessiano de $f_x(x)$, a Normal que melhor aproxima à posteriori é definida por:
+
+\begin{align}
+N \sim ( ~ \mu = x_0, \sigma^2 = (-H)^{-1} ~ ) \\
+\end{align}
+
+<br />
+
+Logo, precisamos da moda ($x_0$) e do hessiano da função (`r eqs$normal.kernel `). Podemos calculá-los analiticamente ou numericamente.
+
+Para a solução analítica, $\theta_0$ é dado pelo máximo local da função:
+
+\begin{align}
+\frac{ d ~l(\theta) }{ d\theta } = 0 \\
+\end{align}
+
+<br />
+
+\begin{align}
+0 & = ( \alpha + y -1 ) ~ \theta^{-1} + (-1) \cdot ( \beta + n -y -1 ) ~ (1 - \theta)^{-1} \\
+\theta & = \frac{ \alpha + y - 1 }{ \alpha + y + \beta + n - y - 2 } \\
+\end{align}
+
+<br />
+
+Logo, a moda da posteriori é dada por:
+
+\begin{align}
+\theta_0 = \frac{ \alpha^{*} - 1 }{ \alpha^{*} + \beta^{*} - 2 } \\
+\end{align}
+
+E o hessiano será dado por:
+```{r, echo=FALSE}
+eqs$hessian.normal.aprox <- n.eq
+n.eq <- n.eq + 1
+```
+
+\begin{align}
+H & = \frac{ d ~l(\theta)^2 }{ d^2 \theta }  \qquad (`r eqs$hessian.normal.aprox `)
+\end{align}
+
+<br />
+
+\begin{align}
+H & = ( 1- \alpha - y ) \theta^{-2} \cdot ( 1 + y - n - \beta )( 1-\theta )^{-2} \\
+H & = ( 1 - \alpha^{*} ) \theta^{-2} + ( 1 - \beta^{*} ) (1-\theta)^{-2} \\
+\end{align}
+
+<br />
+
+Para o nosso exemplo:
+
+```{r, approximation-normal-analytical-posteriori}
+## --------------------------------------------------
+## Posteriori by Normal approximation - analytical
+
+## The Normal mean is the posteriori mode
+mean.app <- (alpha.star - 1)/(alpha.star + beta.star - 2 )
+
+## The variance is (-H)^(-1)
+hessian <- ( 1 - alpha.star )*( mean.app^(-2) ) + ( 1 - beta.star )*( ( 1-mean.app )^(-2) )
+sd.app <- sqrt( 1/( (-1)*(hessian) ) )
+
+c(mean.app, sd.app)
+
+```
+<br />
+
+\begin{align}
+N \sim ( ~ \mu = `r formatC(mean.app, digits=4, format="f") `, \sigma^2 = `r formatC( sd.app^2, digits = 4, format = "f") ` ~ ) \\
+\end{align}
+
+<br />
+
+Caso não fosse possível fazer as derivadas em (`r eqs$hessian.normal.aprox`), porderíamos utilizar a estimação numérica dos parâmetros da Normal aproximada otimizando $log(~ f_x(\theta) ~)$:
+
+```{r, approximation-normal-numerical-posteriori}
+## --------------------------------------------------
+## Posteriori by Normal approximation - numerical
+
+## Function to optimize
+fun.mean <- function( theta0, alpha, beta, n, k ){
+  ( alpha + k - 1 )*log( theta0 ) + ( beta + n - k - 1 )*log( 1 - theta0 )
+}
+
+## Optimizing
+op <- optim( mode.pri, fn = fun.mean
+             , method = "Brent", control=list(fnscale=-1)
+             , lower = 1e-3, upper = 1-1e-3
+             , alpha = priori.pars$alpha, beta = priori.pars$beta, n = n, k = k       
+             , hessian = TRUE )
+
+## Normal parameters
+mean.app.num <- op$par
+sd.app.num <- sqrt( 1/( (-1)*( op$hessian ) ) )
+c( mean.app.num, sd.app.num )
+
+```
+
+<br />
+
+Obtemos por esse método a posteriori Normal dada por:
+
+\begin{align}
+N \sim ( ~ \mu = `r formatC( mean.app.num, digits=4, format="f" ) `, \sigma^2 = `r formatC( sd.app.num^2, digits = 4, format = "f" ) ` ~ ) 
+\end{align}
+
+
+### Aproximação por discretização
+
+Neste método aproximamos a posteriori discretizando seu suporte e calculando a posteriori proporcional em cada um destes pontos. Depois, para que essa função proporcional seja uma distribuição de probabilidade, a multiplicamos por um fator de escala que torne a área abaixo da sua curva 1. Deste resultado geramos amostras para resumir e avaliar as estatísticas da posteriori.
+<br />
+<br />
+
+```{r, approximation-discretization-posteriori}
+## --------------------------------------------------
+## Posteriori by discrete approximation
+
+## Function proportional
+f.post <- function(theta, alpha, beta, n, k ){
+  ( theta^k * (1-theta)^(n-k) ) * ( theta^(alpha-1) * (1-theta)^(beta-1) )
+}
+
+## Discretized support
+x <- seq( 0, 1, by = 1e-4)
+
+## Proportional probabilities
+fx <- f.post(x, priori.pars$alpha, priori.pars$beta, n, k )
+
+## Scale factor
+fx <- fx*( sum(fx)^(-1) )
+
+## Samples
+samples <- sample( x = x, prob = fx, size = 1e4, replace = TRUE )
+
+## Normal parameters
+mean.app.discr <- mean( samples )
+sd.app.discr <- sd( samples )
+c( mean.app.discr, sd.app.discr )
+
+```
+
+<br />
+
+Obtemos por esse método a posteriori Normal dada por:
+
+\begin{align}
+N \sim ( ~ \mu = `r formatC( mean.app.discr, digits=4, format="f" ) `, \sigma^2 = `r formatC( sd.app.discr^2, digits = 4, format = "f" ) ` ~ ) 
+\end{align}
+
+## Posteriori por amostragem
+
+Os métodos denominados de métodos de amostragem consistem de gerar muitas amostras da posterior sem determinar sua função.
+
+Utilizam, basicamente, dois passos: no primeiro gera-se uma amostra do parâmetro de interesse sem qualquer relação com a posteriori; 
+no segundo define-se se esta amostra será utilizada ou descartada, agora sim utilizando a posteriori para tomar esta decisão. Assim, 
+ao final das iterações, teremos a posteriori dada pela densidade desta amostra e não será necessário avaliar a constante de 
+proporcionalidade nem utilizar um fator de escala (como na posteriori por discretização).
+
+Veremos a seguir os algoritmos deste método, o Aceitação-Rejeição e o MCMC, ambos em sua versão mais simples.
+<br />
+
+### Posteriori por amostragem com algoritmo de Aceitação-Rejeição
+
+Algoritmo de Aceitação-Rejeição
+<br ?>
+
+<ol>
+<li>Calcula-se a moda da posteriori.</li>
+<li>Define-se um retângulo circunscrito à posteriori proporcional de tal forma que sua altura seja a probabilidade da moda na posteriori proporcional.</li>
+<li>Repete-se até uma condição de parada:</li>
+<ol>
+<li>É amostrado um valor qualquer do suporte da posterioiri, $x$.</li>
+<li>É estimada $P(Aceitar ~ x_i)$, a probabilidade de aceitar (manter o valor na amostra final) ou descartar o valor amostrado pela razão entre a probabilidade da posteriori proporcional no ponto amostrado e a altura do retângulo circuscrito (probabilidade proporcional na moda da posteriori)</li>
+<li>Aceita-se $x_i$ com a $P(Aceitar ~ x_i)$.</li>
+</ol>
+</ol>
+<br />
+
+```{r, rejection-algorithm}
+## --------------------------------------------------
+## Rejection algorithm
+
+## Posteriori numerator
+f.post <- function( x, alpha = alpha.star, beta = beta.star ){
+  ( x^(alpha-1) )*( (1-x)^(beta-1) )
+}
+
+## Polygon height
+fx.max <- f.post( mode.post )
+
+## Samples number
+n.metr <- 1e4
+samp.metr <- rep(NA, n.metr)
+
+## Counters
+i <- 0
+j.metr <- 0
+
+## Loop
+t.metr <- system.time(
+
+while( is.na( samp.metr[n.metr] ) ){
+  x <- runif(1)
+  if( runif(1) < f.post(x)/fx.max ){
+    samp.metr[i] <- x
+    i <- i+1
+  }
+  j.metr <- j.metr+1
+}
+
+)
+
+n.metr
+j.metr
+
+```
+<br />
+
+O problema com os métodos por amostragem é seu alto custo computacional. Neste exemplo, foram geradas `r as.integer(j.metr) ` amostras para termos `r as.integer(n.metr) ` amostras válidas - ou seja, cerca de `r round( j.metr/n.metr ) ` vezes mais processamento do que o necessário para gerar as amostras da posteriori. O tempo de processamento foi de `r as.numeric( t.metr[1] )` segundos, pois trata-se de um exemplo simples. Este alto custo computacional pode tornar a abordagem inviável dependendo da complexidade do modelo ou do tempo disponível para sua avaliação.
+
+<br />
+
+### Posteriori por amostragem com algoritmo MCMC (Markov Chain Monte Carlo)
+
+Este algoritmo é mais eficiente que o de Aceitação-Rejeição, pois trablha com uma taxa de rejeição menor. Nele, o valor do suporte candidato a fazer parte da amostra é dependente do valor escolhido no passo anterior (por isso *Markov Chain*), pois estará dentro de sua vizinhança, cujo limite deverá ser definido pelo pesquisador. Ademais, não tem a necessidade de estimar a moda da posteriori, pois a probabilidade de aceite do valor é dada pela comparação entre as probabilidades proporcionais destes valores em sequência.
+<br />
+
+Algoritmo MCMC
+<br />
+
+<ol>
+<li>Gera-se um valor aleatório inicial no suporte da posteriori, $x_i$.</li>
+<li>Avalia-se a posteriori proporcional neste ponto, $f(x_i)$.</li>
+<li>Repete-se até uma condição de parada:</li>
+<ol>
+<li>Gera-se um valor aleatório no suporte da posteriori dentro da vizinhança de $x_i$, $x_j$.</li>
+<li>Avalia-se a posteriori proporcional neste ponto, $f(x_j)$.</li>
+<li>Avalia-se a probabilidade de aceitação deste novo valor, $P(Aceitar ~ x_j)$, com a razão $f(x_j)/f(x_i)$.</li>
+<li>Aceita-se $x_j$ com a $P(Aceitar ~ x_j)$</li>
+<li>$x_i$ recebe o valor de $x_j$ e $f(x_i)$, o de $f(x_j)$.</li>
+</ol>
+</ol>
+
+<br />
+
+Há algumas particularidades desse algoritmo que devem ser observadas.
+
+  * Como o valor do suporte é escolhido na vizinhança do valor anterior, dependendo do valor inicial e do intervalo de vizinhança configurado, pode ser que as amostras demorem para percorrer todo espaço paramétrico. Para lidar com essa limitação do método, os primeiros valores gerados devem ser descartados - procedimento chamado de *burn in*.
+  * Além do *burn in*, o pesquisador deve cuidar com o tamanho do intervalo de vizinhança dentro da qual o ponto seguinte deve ser escolhido. Recomenda-se experimentar alguns valores e ver como a cadeia de valores gerados se comporta. A recomendação é que a taxa de rejeição deva estar próxima a 30%.
+
+<br />
+<br />
+
+```{r, mcmc-algorithm}
+## --------------------------------------------------
+## MCMC algorithm
+
+fun.mcmc <- function(n.mcmc, step, burn.in = 0){
+  
+  ## Settings
+  samp.mcmc <- rep( NA, n.mcmc+burn.in )
+  
+  ## Counters
+  i <- 0
+  j.mcmc <- 0
+  
+  ## Initial value
+  x0 <- runif(1)
+  fx0 <- f.post(x0)
+  
+  ## Loop
+  t.mcmc <- system.time(
+    
+    while( is.na( samp.mcmc[ n.mcmc+burn.in ] ) ){
+      
+      ## Actual value
+      x1 <- runif(n = 1, min = max(0, x0-step), max = min(1, x0+step) )
+      fx1 <- f.post(x1)
+      
+      if( runif(1) <= fx1/fx0 ){
+        ## Store it
+        samp.mcmc[i] <- x1
+        i <- i+1
+        
+        ## Update previous values
+        x0 <- x1
+        fx0 <- fx1          
+      }
+      j.mcmc <- j.mcmc+1
+    }
+    
+  )
+  
+  ## Burn in
+  if( burn.in > 0 ){
+    b <- samp.mcmc[1:burn.in]
+    samp.mcmc <- samp.mcmc[-(1:burn.in)]
+    burn.in <- b
+  } 
+  
+  ## Return
+  samples <- samp.mcmc
+  attr(samples, "burn.in") <- burn.in
+  attr(samples, "total.steps") <- j.mcmc
+  attr(samples, "time") <- t.mcmc
+  return(samples)
+
+}
+
+
+## Step values
+step <- c(5e-2, 1e-2, 1e-3)
+
+## Sample size values
+## n <- c(1e1, 1e2, 1e3)
+n <- c(1e3, 1e4, 1e6)
+
+## Running MCMC
+mcmc <- lapply( n, function(n){
+lapply( step, fun.mcmc, n.mcmc = n )
+} )
+
+```
+<br />
+
+Para ilustrar estas características do método, foram geradas amostras da posteriori com três valores de tamanho de vizinhança e três tamanhos finais de amostra.
+
+<br />
+```{r, echo=FALSE, fig.width=12, fig.height=15, fig.align='center', results='hide'}
+## --------------------------------------------------
+## Plot it
+
+fun.plot <- function( n.size, lab = FALSE ){
+
+  ## Plot structure
+  plot( 1~1, type = "n", xlim = c( 0, n[n.size] ), ylim = c(0,1)
+       , main = "Amostras - Markov Chains"
+       , xlab = ""
+       , ylab = ifelse( lab, expression(theta), "" ) )
+
+  ## Markov chains
+  sapply( 1:3, function( i ){
+    lines( mcmc[[n.size]][[i]], col = i+1 )
+  })  
+  mtext(bquote(" N = " ~ .(as.integer(n[n.size])) ), side = 3, line = -2, adj = 0 )
+  legend( "topright", title = "steps"
+          , lty = 1
+          , col = 2:4
+          , legend = c( step )
+          , bty = "n" )
+
+  ## Posteriori densities
+  d <- lapply( 1:3, function( i ){
+    density( mcmc[[n.size]][[i]] )
+  })
+
+  ## Plot structure
+  y <- sapply(1:3, function(i){ max(d[[i]]$y) })  
+  plot( 1~1, type = "n"
+        , xlim = c(0, 1), ylim = c(0,max(y))
+       , main = "Posteriori samples density"
+       , xlab = ifelse( lab, expression(theta), "" ), ylab = "" )
+  
+  ## Density plots
+  sapply( 1:3, function( i ){
+    lines( d[[i]], col = i+1 )
+  })
+
+}
+
+layout( matrix( c(1,1,2,3,3,4,5,5,6), nrow = 3, ncol = 3, byrow = TRUE) )
+par( mar=c(3,2,3,1) )
+fun.plot(1, FALSE)
+fun.plot(2, FALSE)
+fun.plot(3, TRUE)
+
+```
+
+```{r, comparing-sampling-methods}
+## --------------------------------------------------
+## Comparing sampling methods
+
+tb <- data.frame(
+  ## The method
+  algorithm = c("Aceitação-Rejeição", rep("MCMC", length.out = 9) )
+  ## Sample size
+  , n = c( n.metr, rep( as.integer(n), each = 3) )
+  ## Step size
+  , step = c("", rep( step, length.out = 9 ) )
+  ## Mode estimate
+  , mean = c( mean(samp.metr), c( sapply(1:3, function(n){ 
+    sapply(1:3, function(s){
+      mean( mcmc[[n]][[s]] )
+    }) 
+  }) ) )
+  ## Rejection rate
+  , rejection.rate = c( (j.metr-n.metr)/j.metr, c( sapply(1:3, function(i){ 
+    sapply(1:3, function(s){
+      total.size <- ifelse( attr(mcmc[[i]][[s]], "burn.in") == 0
+                            , n[i]
+                            , (n[i]+length( attr(mcmc[[i]][[s]], "burn.in") )) )
+      ( attr( mcmc[[i]][[s]], "total.steps" )-total.size )/total.size
+    }) 
+  }) ) )
+  ## Time elapsed
+  , time = c( t.metr[3], c( sapply(1:3, function(n){ 
+    sapply(1:3, function(s){
+      attr( mcmc[[n]][[s]], "time" )[3]
+    })
+  }) ) )
+)
+
+tb$mean <- formatC( tb$mean, digits = 3, format = "f" )
+tb$rejection.rate <- formatC( tb$rejection.rate, digits = 3, format = "f" )
+tb$time <- formatC( tb$time, digits = 3, format = "f" )
+```
+<center>
+```{r, comparing-sampling-methods-tb}
+htmlTable::htmlTable( tb %>% arrange( n, algorithm, desc(step) )
+                      , col.rgroup = c("none", "#F7F7F7"), rnames = FALSE, css.table = "width: 600px"
+                      , header = c("Algorithm", "n", "Step", "Posterior mean", "Rejection rate", "Time") )
+
+```
+
+</center>
+
+<br />
+
+Um passo muito pequeno deixa as amostras presas ao valor inicial de tal forma que é necessário gerar muito mais dados para que a cadeia consiga percorrer todo o espaço amostral. No exemplo, para o passo de $`r step[3]`$ só é possível ver amostras geradas com valores extremos na cadeia com $`r n[3]`$ amostras - ainda assim não chegam à amplitude de valores dos passos maiores. Como consequência, a taxa de rejeição com um passo muito pequeno será dependente do valor inicial.
+
+O passo de tamanho $`r step[2]`$ teve mais facilidade de percorrer o espaço paramétrico, mas ainda assim apresenta uma ttaxa de rejeição muito baixa, o que se reflete em uma cadeia que oscila vagarosamente entre seus extremos. Isso pode ser ruim especialmente em distribuições assimétricas, além de fazer o algoritmo ter menos eficiência - vemos que com $`r n[2]`$ a cadeia de $`r step[2]`$ não gera uma distribuição regular. 
+
+E mesmo com o passo maior, $`r step[1]`$, a taxa de rejeição ficou abaixo do ótimo definido pela literatura.
+
+No gráfico da cadeia de tamanho $`r n[3]`$ é possível ver com mais detalhes a velocidade com que as cadeias convergem para a estabilidade. As caudas nos gráficos de densidade mostram como os valores iniciais extremos causam uma assimetria na distribuição gerada (os mesmos foram gerados sem considerar o *burn in*).
+
+Avaliando a cadeia MCMC gerada pela sua taxa de rejeição, o passo de $5e-2$ está próximo do ideal, mas ainda um pouco baixo. Para aumentar um pouco a rejeição, precisamos aumentar o tamanho do passo. Vejamos a taxa de rejeição para passos maiores, com tamanho de cadeia $10^4$ e burn in $10^3$:
+
+<center>
+
+```{r, echo=FALSE}
+
+df <- data.frame(
+step.size = seq( from=5.5e-2, to=7e-2, by=1e-3 )
+, rejection.rates = sapply( seq( from=5.5e-2, to=7e-2, by=1e-3 ), function(s){
+  chain <- fun.mcmc(n.mcmc = 1e4, step = s, burn.in = 1e3)
+  ( attr( chain, "total.steps" )-(1e4+1e3) )/(1e4+1e3)
+} )
+)
+
+htmlTable::htmlTable( data.frame( df$step.size, formatC(df$rejection.rates, digits=3, format = "f") )
+                      , col.rgroup = c("none", "#F7F7F7"), rnames = FALSE, css.table = "width:300px"
+                      , header = c("Step", "Rejection rate") )
+
+
+e <- (df$rejection.rates-0.3)^2
+step <- df$step.size[ which( e == min(e) ) ]
+
+```
+
+</center>
+Assim, para a posteriori MCMC, serão utilizados:
+<ul>
+<li>Passo = `r step` </li>
+<li>Burn in = 1e3 </li>
+<li>N = 1e4 </li>
+</ul>
+<br />
+
+```{r, mcmc, results='hold', fig.width=10, fig.align='center'}
+## --------------------------------------------------
+## Using MCMC
+
+## MCMC
+chain.mcmc <- fun.mcmc( n.mcmc = 1e4, step = step, burn.in = 1e3)
+
+## Plots
+layout( matrix( 1:2, nrow = 2 ) )
+par(mar=c(2,2,2,2))
+
+## Chain
+plot(chain.mcmc, type = "l", ylim = c(0,1)
+   , main = "MCMC Chain", ylab = "", cex.main = 0.7 )
+
+## Posteriori
+plot( density(chain.mcmc), xlim = c(0, 1)
+    , main = "Posteriori MCMC", xlab = bquote(theta), ylab = "", cex.main = 0.7 )
+
+## Efficiency
+attr(chain.mcmc, "total.steps")
+attr(chain.mcmc, "time")
+
+```
+<br />
+<br />
+<hr />
+
+
+# Comparação dos métodos estudados
+
+```{r, echo=FALSE, fig.width=10, fig.align='center'}
+## --------------------------------------------------
+## Plot it
+
+col.post.ana <- "black"
+col.post.app <- "green"
+col.post.app.num <- "mediumvioletred"
+col.post.app.disc <- "mediumblue"
+col.post.metr <- "red"
+col.post.mcmc <- "turquoise1"
+
+
+## 
+## Plots
+##
+layout(1)
+par( mar = c(3,3,7,3) )
+
+## Priori
+curve( dbeta(x, priori.pars$alpha, priori.pars$beta)
+     , col = 3, lty = 3
+     , ylab = "", main = ""
+     , xlab = "Proporção de votos do candidato"
+     , ylim = c(0, dbeta(mode.pri, priori.pars$alpha, priori.pars$beta)*2), lwd = 2 )
+
+## Verossimilhança
+curve( dbeta(x, alpha.lik, beta.lik), col = 4, lty = 3, add = TRUE )
+
+## Verossimilhança aumentada ?
+curve( dbeta(x, alpha.lik.incr, beta.lik.incr), col = 4, lty = 2, add = TRUE )
+
+## Analytical
+curve( dbeta(x, alpha.star, beta.star), col = col.post.ana, add = TRUE )
+
+## Normal approximation, analytical method for parameters
+curve( dnorm(x, mean = mean.app, sd = sd.app)
+     , col = col.post.app
+     , ylab = "", main = "", add = TRUE )
+
+## Normal approximation, numerical method for parameters
+curve( dnorm(x, mean = mean.app.num, sd = sd.app.num)
+     , col = col.post.app.num
+     , ylab = "", main = "", add = TRUE )
+
+## Discrete approximation
+d <- density(x = samples)
+mode.app.disc <- d$x[ which( d$y == max(d$y) ) ]
+lines( d, col = col.post.app.disc)
+
+## Rejection
+d <- density(x = samp.metr)
+mode.metr <- d$x[ which( d$y == max(d$y) ) ]
+lines(d, col = col.post.metr)
+
+## MCMC
+d <- density(x = mcmc[[1]][[1]])
+mode.mcmc <- d$x[ which( d$y == max(d$y) ) ]
+lines(d, col = col.post.mcmc)
+
+
+## Legend
+leg.labs <- c("Priori", "Verossimilhança", "Verossimilhança aumentada", "Posteriori Analítica", "Posteriori por Aproximação à Normal (Analítico)", "Posteriori por Aproximação à Normal (Numérico)", "Posteriori por Discretização", "Posteriori por Amostragem com Aceitação-Rejeição", "Posteriori por amostragem com MCMC")
+leg.cols <- c(3, 4, 4, col.post.ana, col.post.app, col.post.app.num, col.post.app.disc, col.post.metr, col.post.mcmc )
+leg.ltys <- c(3, 3, 2, rep(1, length.out = 6) )
+
+legend("topleft"
+     , legend = leg.labs
+     , col = leg.cols
+     , lty = leg.ltys
+     , bty = "n", cex = 0.7)
+
+## Results
+txt.mode.prio <- paste("Moda priori:", formatC( mode.pri, digits = 2, format = "f" ) )
+txt.mode.lik <- paste("Moda verossimilhança:", formatC( mode.lik, digits = 2, format = "f" ) )
+txt.mode.post <- paste("Moda posteriori analítica:", formatC( mode.post, digits = 2, format = "f" ) )
+txt.mode.post.approx <- paste("Média posteriori por aproximação:", formatC( mean.app, digits = 2, format = "f" ) )
+txt.mode.post.approx.num <- paste("Média posteriori por aproximação numérica:"
+                                , formatC( mean.app.num, digits = 2, format = "f" ) )
+txt.mode.post.samp <- paste("Moda posteriori por amostragem:", formatC( mode.app.disc, digits = 2, format = "f" ) )
+
+mtext( bquote("Moda da priori: " ~ .(mode.pri) ~ 
+              ", Beta(" ~ alpha ~ "=" ~ .(priori.pars$alpha) ~ 
+              "," ~ beta ~ "=" ~ .( priori.pars$beta ) ~ ")" ), side = 3, line = 6, adj = 0 )
+mtext( bquote("Moda das verossimilhanças: " ~ .(mode.lik) ~ " / (increased): " ~ .(mode.lik.incr) )
+     , side = 3, line = 5, adj = 0 )
+mtext( bquote("Moda da posteriori analítica: " ~ .(mode.post) ), side = 3, line = 4, adj = 0 )
+mtext( bquote("Médias/moda das posterioris por aproximação: (ana)" ~ .(mean.app) ~ " / (num) " ~ .(mean.app.num)  ~ " / (disc) " ~ .(mode.app.disc) )
+     , side = 3, line = 3, adj = 0 )
+mtext( bquote("Modas das posterioris por amostragem: (metr)" ~ .(mode.metr) ~ " / (mcmc) " ~ .(mode.mcmc) )
+     , side = 3, line = 2, adj = 0 )
+mtext( bquote("Amostra: n = " ~ .(n.sample) ~ "," ~ .(k) ~ "votantes no candidato" )
+     , side = 3, line = 1, adj = 0 )
+y.theta <- dbeta(mode.pri, priori.pars$alpha, priori.pars$beta)*1.75
+segments( x0 = Theta, x1 = Theta, y0 = 0, y1 = y.theta, col = gray(0, 0.7))
+text( x = Theta, y = y.theta+0.3, labels = bquote(theta ~ " = " ~ .(Theta)) )
+
+```
+
+```{r, comparing-all, eval=FALSE, echo=FALSE}
+## TODO Hpd
+
+## Settings
+st <- 1e-3
+conf <- 0.95
+
+## Analytical
+d0 <- dbeta( mode.post, shape1 = alpha.star, shape2 = beta.star )
+
+x <- seq(0,1, by = 1e-3)
+x.inf <- subset(x, x < mode.post)
+x.sup <- subset(x, x > mode.post)
+ds.inf <- dbeta( x.inf, shape1 = alpha.star, shape2 = beta.star )
+ds.sup <- dbeta( x.sup, shape1 = alpha.star, shape2 = beta.star )
+
+i <- 0
+e <- 1
+while( e > 5e-3 ){
+
+i <- i+1
+e.inf <- ( ds.inf - ( d0-(i*st) ) )^2
+e.sup <- ( ds.sup - ( d0-(i*st) ) )^2
+
+xi <- x.inf[ which( e.inf == min(e.inf) ) ]
+xs <- x.sup[ which( e.sup == min(e.sup) ) ]
+
+e <- abs( diff( pbeta( c(xi, xs), shape1 = alpha.star, shape2 = beta.star ) ) - conf )
+
+d0 <- max( dbeta( c(xi, xs), shape1 = alpha.star, shape2 = beta.star ) )
+
+}
+
+xi
+xs
+diff( pbeta( c(xi, xs), shape1 = alpha.star, shape2 = beta.star ) )
+
+## Analytical
+
+options(width = 100)
+data.frame(
+distribution = leg.labs
+, mode = c(mode.pri, mode.lik, mode.lik.incr, mode.post, mean.app, mean.app.num, mode.app.disc, mode.metr, mode.mcmc )
+, hpd.inf = c(NA, NA, NA, xi, NA, NA, NA, NA, NA)
+, hpd.sup = c(NA, NA, NA, xs, NA, NA, NA, NA, NA)
+)
+
+```
+<br />
+<br />
+<br />
+<br />
+<br />
+<br />
+<br />

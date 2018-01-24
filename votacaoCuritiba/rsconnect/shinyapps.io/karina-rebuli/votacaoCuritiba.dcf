@@ -1,0 +1,13 @@
+name: votacaoCuritiba
+title: votacaoCuritiba
+username:
+account: karina-rebuli
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 87465
+bundleId: 1190444
+url: https://karina-rebuli.shinyapps.io/votacaoCuritiba/
+when: 1516792921.55297
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: CopyOfserver.R
